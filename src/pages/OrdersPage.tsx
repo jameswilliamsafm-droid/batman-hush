@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { BackendRunInfo, CreatedOrder } from "../types/order";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { checkProviderOrderStatus } from "../utils/api";
+import type { ProviderRunStatus } from "../utils/api";
 import { OrderCard } from "../components/OrderCard";
 
 interface OrdersPageProps {
