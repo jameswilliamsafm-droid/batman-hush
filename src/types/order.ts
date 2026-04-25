@@ -1,5 +1,15 @@
 export type RunStatus = "pending" | "completed" | "cancelled" | "retrying";
 
+// 🔥 ADD THIS - was missing and causing build error
+export type OrderStatus =
+  | "running"
+  | "paused"
+  | "cancelled"
+  | "completed"
+  | "processing"
+  | "failed"
+  | "pending";
+
 export interface ApiService {
   id: string;
   name: string;
@@ -45,7 +55,6 @@ export interface DeliveryOption {
   label: string;
 }
 
-// 🔥 Single run in a pattern plan (frontend side)
 export interface PatternRun {
   run: number;
   at: Date;
@@ -95,13 +104,12 @@ export interface OrderConfig {
   minViewsPerRun: number;
 }
 
-// 🔥 FIXED: BackendRunInfo now matches ACTUAL backend response fields exactly
 export interface BackendRunInfo {
   id: number;
-  label: string;         // "VIEWS" | "LIKES" | "SHARES" | "SAVES" | "COMMENTS"
+  label: string;
   quantity: number;
-  time: string;          // ISO string
-  status: string;        // "pending" | "queued" | "processing" | "completed" | "failed" | "cancelled" | "paused"
+  time: string;
+  status: string;
   smmOrderId: number | null;
   executedAt: string | null;
   error: string | null;
@@ -130,14 +138,7 @@ export interface CreatedOrder {
   serviceId: string;
   selectedAPI: string;
   selectedBundle: string;
-  status:
-    | "running"
-    | "paused"
-    | "cancelled"
-    | "completed"
-    | "failed"
-    | "processing"
-    | "pending";
+  status: OrderStatus;
   completedRuns: number;
   runStatuses: RunStatus[];
   runErrors?: string[];
@@ -145,10 +146,10 @@ export interface CreatedOrder {
   runOriginalTimes?: string[];
   runCurrentTimes?: string[];
   runReasons?: string[];
+  // 🔥 ADD THIS - was missing and causing RunTable to crash
+  runActualExecutedTimes?: (string | null)[];
   errorMessage?: string;
   createdAt: string;
   lastUpdatedAt: string;
-
-  // 🔥 NEW: Backend run details (populated during sync)
   backendRuns?: BackendRunInfo[];
 }
