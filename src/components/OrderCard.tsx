@@ -10,6 +10,7 @@ import {
   Tooltip,
   CartesianGrid,
   ResponsiveContainer,
+  Legend,
 } from "recharts";
 
 interface OrderCardProps {
@@ -77,34 +78,85 @@ export function OrderCard({ order, onControl, onClone, controlBusy }: OrderCardP
     return order.status;
   }, [order, nowMs]);
 
-  const graphData = useMemo(() => {
+  // 🔥 FIX: Build chart data from actual run data (cumulative over time)
+  const chartData = useMemo(() => {
     const runs = Array.isArray(order?.runs) ? order.runs : [];
-    let v = 0, l = 0, sh = 0, sa = 0, c = 0;
+    if (runs.length === 0) return [];
+
+    let cumulativeViews = 0;
+    let cumulativeLikes = 0;
+    let cumulativeShares = 0;
+    let cumulativeSaves = 0;
+    let cumulativeComments = 0;
+
     return runs.map((run) => {
       if (!run) return null;
-      const runTime = run?.at ? new Date(run.at).getTime() : 0;
-      if (runTime <= nowMs) {
-        v += Number(run?.views || 0);
-        l += Number(run?.likes || 0);
-        sh += Number(run?.shares || 0);
-        sa += Number(run?.saves || 0);
-        c += Number(run?.comments || 0);
+
+      const runTime = run?.at instanceof Date
+        ? run.at.getTime()
+        : new Date(run?.at ?? 0).getTime();
+
+      const isPast = runTime <= nowMs;
+
+      // Only accumulate past runs
+      if (isPast) {
+        cumulativeViews += Number(run?.views || 0);
+        cumulativeLikes += Number(run?.likes || 0);
+        cumulativeShares += Number(run?.shares || 0);
+        cumulativeSaves += Number(run?.saves || 0);
+        cumulativeComments += Number(run?.comments || 0);
       }
-      return { time: run.at, views: v, likes: l, shares: sh, saves: sa, comments: c };
+
+      const timeLabel = run?.at instanceof Date
+        ? run.at
+        : new Date(run?.at ?? 0);
+
+      return {
+        time: timeLabel,
+        timeMs: runTime,
+        views: isPast ? cumulativeViews : null,
+        likes: isPast ? cumulativeLikes : null,
+        shares: isPast ? cumulativeShares : null,
+        saves: isPast ? cumulativeSaves : null,
+        comments: isPast ? cumulativeComments : null,
+        // Planned lines (full schedule)
+        plannedViews: cumulativeViews + (isPast ? 0 : Number(run?.views || 0)),
+        plannedLikes: cumulativeLikes + (isPast ? 0 : Number(run?.likes || 0)),
+      };
     }).filter(Boolean);
   }, [order?.runs, nowMs]);
 
+  // 🔥 FIX: Build planned data from all runs regardless of time
   const plannedData = useMemo(() => {
-    const runs = order.runs || [];
-    return runs.map((run) => ({
-      time: run.at,
-      views: run.cumulativeViews || 0,
-      likes: (run.cumulativeLikes || 0) * 10,
-      shares: (run.cumulativeShares || 0) * 10,
-      saves: (run.cumulativeSaves || 0) * 10,
-      comments: (run.cumulativeComments || 0) * 10,
-    }));
-  }, [order.runs]);
+    const runs = Array.isArray(order?.runs) ? order.runs : [];
+    if (runs.length === 0) return [];
+
+    let cv = 0;
+    let cl = 0;
+
+    return runs.map((run) => {
+      if (!run) return null;
+      cv += Number(run?.views || 0);
+      cl += Number(run?.likes || 0);
+
+      const timeLabel = run?.at instanceof Date
+        ? run.at
+        : new Date(run?.at ?? 0);
+
+      return {
+        time: timeLabel,
+        plannedViews: cv,
+        plannedLikes: cl,
+      };
+    }).filter(Boolean);
+  }, [order?.runs]);
+
+  // 🔥 FIX: Check if there is any meaningful data to show
+  const hasChartData = safeRuns.length > 0;
+  const hasActualData = safeRuns.some((run) => {
+    const runTime = run?.at instanceof Date ? run.at.getTime() : new Date(run?.at ?? 0).getTime();
+    return runTime <= nowMs && (run?.views || 0) > 0;
+  });
 
   const shortLink =
     order.link.length > 56
@@ -132,19 +184,10 @@ export function OrderCard({ order, onControl, onClone, controlBusy }: OrderCardP
 
         {/* Left - Mission Info */}
         <div className="space-y-1 sm:space-y-2 min-w-0">
-          <p className="text-[10px] sm:text-xs uppercase tracking-wide text-gray-600">
-            Mission ID
-          </p>
-          <h3 className="text-base sm:text-lg font-semibold text-yellow-400">
-            {order.id}
-          </h3>
-          <p className="text-xs sm:text-sm text-yellow-300">
-            {order.name || `Mission #${order.id}`}
-          </p>
-          <p
-            className="max-w-full truncate text-xs sm:text-sm text-gray-500"
-            title={order.link || "No link provided"}
-          >
+          <p className="text-[10px] sm:text-xs uppercase tracking-wide text-gray-600">Mission ID</p>
+          <h3 className="text-base sm:text-lg font-semibold text-yellow-400">{order.id}</h3>
+          <p className="text-xs sm:text-sm text-yellow-300">{order.name || `Mission #${order.id}`}</p>
+          <p className="max-w-full truncate text-xs sm:text-sm text-gray-500" title={order.link || "No link provided"}>
             {shortLink || "No link provided"}
           </p>
           {order.schedulerOrderId && (
@@ -157,31 +200,23 @@ export function OrderCard({ order, onControl, onClone, controlBusy }: OrderCardP
         {/* Right - Order Details */}
         <div className="flex flex-row flex-wrap gap-x-4 gap-y-1 sm:flex-col sm:space-y-2 sm:text-right">
           <p className="text-xs sm:text-sm text-gray-500">
-            Panel ID:{" "}
-            <span className="font-semibold text-yellow-300">{order.smmOrderId}</span>
+            Panel ID: <span className="font-semibold text-yellow-300">{order.smmOrderId}</span>
           </p>
           <p className="text-xs sm:text-sm text-gray-500">
-            Service:{" "}
-            <span className="font-semibold text-gray-300">{order.serviceId}</span>
+            Service: <span className="font-semibold text-gray-300">{order.serviceId}</span>
           </p>
           <p className="text-xs sm:text-sm text-gray-500">
-            Qty:{" "}
-            <span className="font-semibold text-gray-300">{order.totalViews}</span>
+            Qty: <span className="font-semibold text-gray-300">{order.totalViews}</span>
           </p>
           <p className="text-xs sm:text-sm text-gray-500">
-            Status:{" "}
-            <span className={`font-semibold ${statusColor[effectiveStatus]}`}>
-              {effectiveStatus}
-            </span>
+            Status: <span className={`font-semibold ${statusColor[effectiveStatus]}`}>{effectiveStatus}</span>
           </p>
           {order.errorMessage && (
-            <p className="text-[10px] sm:text-xs text-red-400 break-words">
-              Error: {order.errorMessage}
-            </p>
+            <p className="text-[10px] sm:text-xs text-red-400 break-words">Error: {order.errorMessage}</p>
           )}
           {finishTime && (
             <p className="text-[10px] sm:text-xs text-gray-600">
-              ETA: {finishTime.toLocaleString()}
+              ETA: {finishTime instanceof Date ? finishTime.toLocaleString() : new Date(finishTime).toLocaleString()}
             </p>
           )}
           <p className="text-[10px] sm:text-xs text-gray-600">
@@ -202,52 +237,110 @@ export function OrderCard({ order, onControl, onClone, controlBusy }: OrderCardP
             style={{ width: `${progressPercent}%` }}
           />
         </div>
-        <p className="text-xs text-gray-500">
-          {completedRuns} / {totalRuns} runs completed
-        </p>
+        <p className="text-xs text-gray-500">{completedRuns} / {totalRuns} runs completed</p>
 
-        {/* Chart - smaller on mobile */}
-        <div className="mt-3 sm:mt-4 h-36 sm:h-48 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart
-              data={plannedData}
-              margin={{ top: 4, right: 4, left: -25, bottom: 0 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#111" opacity={0.3} />
-              <XAxis
-                dataKey="time"
-                stroke="#666"
-                tick={{ fontSize: 8 }}
-                tickFormatter={(time) => {
-                  const d = new Date(time);
-                  return d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0");
-                }}
-              />
-              <YAxis stroke="#666" tick={{ fontSize: 8 }} width={30} />
-              <Tooltip
-                formatter={(value, name) => {
-                  if (name?.startsWith("planned")) return null;
-                  return [value, name];
-                }}
-                contentStyle={{
-                  background: "#000",
-                  border: "1px solid #eab308",
-                  borderRadius: "8px",
-                  fontSize: "10px",
-                }}
-              />
-              <Line type="monotone" dataKey="views" stroke="#3b82f6" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-views" />
-              <Line type="monotone" dataKey="likes" stroke="#ec4899" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-likes" />
-              <Line type="monotone" dataKey="shares" stroke="#22c55e" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-shares" />
-              <Line type="monotone" dataKey="saves" stroke="#eab308" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-saves" />
-              <Line type="monotone" dataKey="comments" stroke="#a855f7" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-comments" />
-              <Line type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="likes" stroke="#ec4899" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="shares" stroke="#22c55e" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="comments" stroke="#a855f7" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        {/* 🔥 FIX: Chart with proper data */}
+        {hasChartData && (
+          <div className="mt-3 sm:mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] text-gray-500">📈 Delivery Progress</p>
+              <div className="flex items-center gap-3 text-[9px]">
+                <span className="flex items-center gap-1">
+                  <span className="inline-block h-2 w-4 rounded bg-yellow-400" />
+                  <span className="text-gray-500">Views</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block h-2 w-4 rounded bg-pink-400" />
+                  <span className="text-gray-500">Likes</span>
+                </span>
+              </div>
+            </div>
+            <div className="h-36 sm:h-48 w-full rounded-xl border border-yellow-500/10 bg-black/30 p-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={plannedData}
+                  margin={{ top: 4, right: 8, left: -20, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" opacity={0.5} />
+                  <XAxis
+                    dataKey="time"
+                    stroke="#4b5563"
+                    tick={{ fontSize: 8, fill: "#6b7280" }}
+                    tickFormatter={(time) => {
+                      try {
+                        const d = new Date(time);
+                        return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+                      } catch {
+                        return "";
+                      }
+                    }}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis
+                    stroke="#4b5563"
+                    tick={{ fontSize: 8, fill: "#6b7280" }}
+                    width={35}
+                    tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: "#000",
+                      border: "1px solid #eab308",
+                      borderRadius: "8px",
+                      fontSize: "10px",
+                      color: "#e5e7eb",
+                    }}
+                    labelFormatter={(label) => {
+                      try {
+                        return new Date(label).toLocaleString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        });
+                      } catch {
+                        return label;
+                      }
+                    }}
+                    formatter={(value: number, name: string) => {
+                      if (value === null || value === undefined) return ["-", name];
+                      const labels: Record<string, string> = {
+                        plannedViews: "Views",
+                        plannedLikes: "Likes",
+                      };
+                      return [value.toLocaleString(), labels[name] || name];
+                    }}
+                  />
+                  {/* Planned Views - solid yellow */}
+                  <Line
+                    type="monotone"
+                    dataKey="plannedViews"
+                    stroke="#eab308"
+                    strokeWidth={2}
+                    dot={false}
+                    name="plannedViews"
+                    connectNulls
+                  />
+                  {/* Planned Likes - solid pink */}
+                  <Line
+                    type="monotone"
+                    dataKey="plannedLikes"
+                    stroke="#ec4899"
+                    strokeWidth={1.5}
+                    dot={false}
+                    name="plannedLikes"
+                    connectNulls
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            {!hasActualData && (
+              <p className="text-center text-[10px] text-gray-600 mt-1">
+                📅 Showing planned schedule — actual data will appear as runs complete
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Action Buttons */}
@@ -292,7 +385,7 @@ export function OrderCard({ order, onControl, onClone, controlBusy }: OrderCardP
               : "border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
           }`}
         >
-          {expanded ? "🔼 Hide" : "📋 Runs"}
+          {expanded ? "🔼 Hide Runs" : `📋 View Runs (${totalRuns})`}
         </button>
       </div>
 
