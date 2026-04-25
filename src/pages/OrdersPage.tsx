@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { BackendRunInfo, CreatedOrder } from "../types/order";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { OrderCard } from "../components/OrderCard";
 
 interface OrdersPageProps {
@@ -47,6 +48,8 @@ const TABS: { key: TabType; label: string; icon: string }[] = [
 function getRealStatus(order: CreatedOrder): string {
   if (order.status === "cancelled") return "cancelled";
   if (order.status === "failed") return "failed";
+  if (order.status === "completed") return "completed";
+  if (order.status === "paused") return "paused";
 
   const runs = order.runs || [];
   const now = Date.now();
@@ -59,24 +62,34 @@ function getRealStatus(order: CreatedOrder): string {
           : new Date(run?.at ?? now).getTime();
       return runTime > now;
     });
-    if (allFuture && order.status !== "paused") return "scheduled";
+    if (allFuture) return "scheduled";
   }
 
-  if (runs.length > 0) {
-    const allPast = runs.every((run) => {
-      const runTime =
-        run?.at instanceof Date
-          ? run.at.getTime()
-          : new Date(run?.at ?? now).getTime();
-      return runTime <= now;
-    });
-    if (allPast) return "completed";
+  const rs = order.runStatuses || [];
+  if (rs.length > 0) {
+    if (rs.every((s) => s === "completed")) return "completed";
+    if (rs.every((s) => s === "cancelled")) return "cancelled";
   }
 
-  if (order.status === "processing") return "running";
-  if (order.status === "pending") return "running";
+  if (order.status === "processing" || order.status === "pending") return "running";
+  return "running";
+}
 
-  return order.status;
+function getDeliveredStats(order: CreatedOrder) {
+  const runs = order.runs || [];
+  const runStatuses = order.runStatuses || [];
+  let views = 0, likes = 0, shares = 0, saves = 0, comments = 0;
+  runs.forEach((run, index) => {
+    const status = runStatuses[index];
+    if (status === "completed") {
+      views += run.views || 0;
+      likes += run.likes || 0;
+      shares += run.shares || 0;
+      saves += run.saves || 0;
+      comments += run.comments || 0;
+    }
+  });
+  return { views, likes, shares, saves, comments };
 }
 
 function BackendRunTable({ runs }: { runs: BackendRunInfo[] }) {
@@ -201,10 +214,8 @@ export function OrdersPage({
     const safeRuns = order.runs || [];
     const totalRuns = safeRuns.length;
     if (totalRuns === 0) return { percent: 0, completed: 0, total: 0 };
-
     const statusCompleted = (order.runStatuses || []).filter((s) => s === "completed").length;
     const completed = Math.min(totalRuns, Math.max(order.completedRuns || 0, statusCompleted));
-
     return {
       percent: Math.round((completed / totalRuns) * 100),
       completed,
@@ -351,7 +362,10 @@ export function OrdersPage({
     };
     return (
       <div className={`w-full overflow-hidden rounded-full bg-gray-800 ${height}`}>
-        <div className={`${height} rounded-full transition-all duration-500 ${getColor()}`} style={{ width: `${percent}%` }} />
+        <div
+          className={`${height} rounded-full transition-all duration-500 ${getColor()}`}
+          style={{ width: `${percent}%` }}
+        />
       </div>
     );
   }
@@ -364,7 +378,6 @@ export function OrdersPage({
       cancelled: { title: "No cancelled missions", description: "Cancelled & failed missions will appear here" },
     };
     const icons = { running: "⚡", completed: "✅", scheduled: "📅", cancelled: "🗑️" };
-
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-yellow-500/30 bg-black py-12 sm:py-16">
         <span className="text-4xl">{icons[tab]}</span>
@@ -381,7 +394,6 @@ export function OrdersPage({
       { label: "Done", count: categorizedGroups.completed.length, color: "text-emerald-400", icon: "✅" },
       { label: "Failed", count: categorizedGroups.cancelled.length, color: "text-red-400", icon: "❌" },
     ];
-
     return (
       <div className="grid grid-cols-4 gap-2 sm:gap-3">
         {stats.map((stat) => (
@@ -400,7 +412,6 @@ export function OrdersPage({
   function GroupTableRow({ group }: { group: GroupedOrder }) {
     const progress = getGroupProgress(group);
     const status = getGroupStatus(group);
-
     return (
       <tr
         onClick={() => setOpenedGroupId(group.id)}
@@ -444,6 +455,9 @@ export function OrdersPage({
         </td>
         <td className="hidden sm:table-cell px-4 py-3 text-gray-600 text-xs">
           {new Date(group.createdAt).toLocaleDateString()}
+          <span className="block text-gray-700 text-[10px]">
+            {new Date(group.createdAt).toLocaleTimeString()}
+          </span>
         </td>
       </tr>
     );
@@ -453,7 +467,6 @@ export function OrdersPage({
     const progress = getGroupProgress(group);
     const status = getGroupStatus(group);
     const isCancelled = status === "cancelled" || status === "failed";
-
     return (
       <button
         type="button"
@@ -482,13 +495,11 @@ export function OrdersPage({
           </div>
           <StatusBadge status={status} />
         </div>
-
         {!group.isBatch && (
           <p className="mt-2 truncate text-[10px] text-gray-500" title={group.orders[0]?.link}>
             {toShortLink(group.orders[0]?.link || "")}
           </p>
         )}
-
         {group.isBatch && (
           <div className="mt-2 flex flex-wrap gap-1">
             {group.orders.slice(0, 3).map((order) => (
@@ -510,7 +521,6 @@ export function OrdersPage({
             )}
           </div>
         )}
-
         <div className="mt-3">
           <div className="flex items-center justify-between text-[10px] mb-1">
             <span className="text-gray-600">Progress</span>
@@ -518,7 +528,6 @@ export function OrdersPage({
           </div>
           <ProgressBar percent={progress.percent} />
         </div>
-
         <div className="mt-2 flex items-center justify-between text-[10px] text-gray-600">
           <span>{isCancelled ? "Cancelled" : "Deployed"}</span>
           <span>{new Date(group.createdAt).toLocaleDateString()}</span>
@@ -607,6 +616,43 @@ export function OrdersPage({
             </div>
           ))}
         </div>
+
+        {/* Delivered So Far */}
+        {(() => {
+          const delivered = getDeliveredStats(order);
+          const hasDelivered =
+            delivered.views > 0 ||
+            delivered.likes > 0 ||
+            delivered.shares > 0 ||
+            delivered.saves > 0 ||
+            delivered.comments > 0;
+          const isActive = status === "running" || status === "paused";
+          if (!hasDelivered || !isActive) return null;
+          return (
+            <div className="mt-2 ml-8 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
+              <p className="text-[9px] font-medium text-emerald-500 mb-1.5 uppercase tracking-wider">
+                ✅ Delivered So Far
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {delivered.views > 0 && (
+                  <span className="text-[10px] text-emerald-400">👁️ {delivered.views.toLocaleString()} views</span>
+                )}
+                {delivered.likes > 0 && (
+                  <span className="text-[10px] text-emerald-400">❤️ {delivered.likes.toLocaleString()} likes</span>
+                )}
+                {delivered.shares > 0 && (
+                  <span className="text-[10px] text-emerald-400">🔄 {delivered.shares.toLocaleString()} shares</span>
+                )}
+                {delivered.saves > 0 && (
+                  <span className="text-[10px] text-emerald-400">💾 {delivered.saves.toLocaleString()} saves</span>
+                )}
+                {delivered.comments > 0 && (
+                  <span className="text-[10px] text-emerald-400">💬 {delivered.comments.toLocaleString()} comments</span>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Controls */}
         <div className="mt-3 ml-8 flex flex-wrap items-center gap-1.5 sm:gap-2">
@@ -721,10 +767,15 @@ export function OrdersPage({
                               <td className="py-1.5 pr-3 text-blue-400">{run.shares || 0}</td>
                               <td className="py-1.5 pr-3 text-purple-400">{run.saves || 0}</td>
                               <td className="py-1.5">
-                                {runStatus === "completed" ? <span className="text-emerald-400">✅</span>
-                                  : runStatus === "cancelled" ? <span className="text-red-400">🚫</span>
-                                  : isPast ? <span className="text-yellow-400">⚡</span>
-                                  : <span className="text-gray-500">🕐</span>}
+                                {runStatus === "completed" ? (
+                                  <span className="text-emerald-400">✅</span>
+                                ) : runStatus === "cancelled" ? (
+                                  <span className="text-red-400">🚫</span>
+                                ) : isPast ? (
+                                  <span className="text-yellow-400">⚡</span>
+                                ) : (
+                                  <span className="text-gray-500">🕐</span>
+                                )}
                               </td>
                             </tr>
                           );
@@ -734,7 +785,7 @@ export function OrdersPage({
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed border-gray-700 bg-black/30 p-4 text-center">
-                    <p className="text-xs text-gray-500">No runs data available.</p>
+                    <p className="text-xs text-gray-500">No runs scheduled for this order</p>
                   </div>
                 )}
               </div>
@@ -749,6 +800,7 @@ export function OrdersPage({
     const overallProgress = getGroupProgress(group);
     const overallStatus = getGroupStatus(group);
     const isCancelled = overallStatus === "cancelled" || overallStatus === "failed";
+    const [showBatchGraph, setShowBatchGraph] = useState(false);
 
     const statusCounts = useMemo(() => {
       const counts: Record<string, number> = {};
@@ -764,6 +816,24 @@ export function OrdersPage({
         (sum, order) => sum + (order.backendRuns?.length || order.runs?.length || 0),
         0
       );
+    }, [group.orders]);
+
+    // Build graph data from first order's runs
+    const batchGraphData = useMemo(() => {
+      const firstOrder = group.orders[0];
+      if (!firstOrder) return [];
+      const runs = firstOrder.runs || [];
+      return runs.map((run) => ({
+        time: (run.at instanceof Date ? run.at : new Date(run.at)).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        views: run.cumulativeViews || run.views || 0,
+        likes: (run.cumulativeLikes || run.likes || 0) * 10,
+        shares: (run.cumulativeShares || run.shares || 0) * 10,
+        saves: (run.cumulativeSaves || run.saves || 0) * 10,
+        comments: (run.cumulativeComments || run.comments || 0) * 10,
+      }));
     }, [group.orders]);
 
     return (
@@ -792,6 +862,11 @@ export function OrdersPage({
                       📦 Bulk
                     </span>
                   )}
+                  {isCancelled && (
+                    <span className="rounded-full bg-red-500/20 border border-red-500/30 px-2 py-0.5 text-[10px] text-red-300 flex-shrink-0">
+                      ❌ Cancelled
+                    </span>
+                  )}
                 </div>
                 <p className="mt-0.5 text-[10px] text-gray-600 font-mono hidden sm:block">
                   {group.batchId || group.id}
@@ -812,14 +887,18 @@ export function OrdersPage({
                 { value: group.linksCount, label: "Links", color: "text-yellow-400" },
                 { value: `${(group.totalViews / 1000).toFixed(0)}k`, label: "Views", color: "text-yellow-400" },
                 { value: totalRunsInBatch, label: "Runs", color: "text-blue-400" },
-                { value: `${overallProgress.percent}%`, label: "Progress", color: isCancelled ? "text-red-400" : "text-emerald-400" },
+                {
+                  value: `${overallProgress.percent}%`,
+                  label: "Progress",
+                  color: isCancelled ? "text-red-400" : "text-emerald-400",
+                },
               ].map((stat) => (
                 <div key={stat.label} className="rounded-lg bg-gray-900 px-2 py-2 text-center sm:px-3">
                   <p className={`text-base sm:text-xl font-bold ${stat.color}`}>{stat.value}</p>
                   <p className="text-[9px] sm:text-[10px] text-gray-500">{stat.label}</p>
                 </div>
               ))}
-              <div className="rounded-lg bg-gray-900 px-2 py-2 text-center sm:px-3 flex items-center justify-center">
+              <div className="rounded-lg bg-gray-900 px-2 py-2 flex items-center justify-center sm:px-3">
                 <StatusBadge status={overallStatus} />
               </div>
             </div>
@@ -833,6 +912,70 @@ export function OrdersPage({
                 </div>
               ))}
             </div>
+
+            {/* Graph Toggle Button */}
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowBatchGraph((prev) => !prev)}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                  showBatchGraph
+                    ? "border-yellow-500/50 bg-yellow-500/20 text-yellow-300"
+                    : "border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
+                }`}
+              >
+                📈 {showBatchGraph ? "Hide Graph" : "View Combined Graph"}
+              </button>
+            </div>
+
+            {/* Combined Batch Graph */}
+            {showBatchGraph && batchGraphData.length > 0 && (
+              <div className="mt-3 rounded-xl border border-yellow-500/20 bg-black/50 p-3">
+                <p className="text-[10px] text-gray-500 mb-2">
+                  Scheduled delivery pattern (same for all {group.linksCount} links)
+                </p>
+                <div className="h-48">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={batchGraphData}
+                      margin={{ top: 8, right: 16, left: 0, bottom: 4 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#111" opacity={0.3} />
+                      <XAxis
+                        dataKey="time"
+                        stroke="#666"
+                        tick={{ fill: "#9ca3af", fontSize: 10 }}
+                      />
+                      <YAxis
+                        stroke="#666"
+                        tick={{ fill: "#9ca3af", fontSize: 10 }}
+                        width={40}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          background: "#000",
+                          border: "1px solid #eab308",
+                          borderRadius: "0.5rem",
+                          color: "#d1d5db",
+                          fontSize: "11px",
+                        }}
+                      />
+                      <Line type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} dot={false} name="Views" />
+                      <Line type="monotone" dataKey="likes" stroke="#ec4899" strokeWidth={1.5} dot={false} name="Likes" />
+                      <Line type="monotone" dataKey="shares" stroke="#22c55e" strokeWidth={1.5} dot={false} name="Shares" />
+                      <Line type="monotone" dataKey="saves" stroke="#eab308" strokeWidth={1.5} dot={false} name="Saves" />
+                      <Line type="monotone" dataKey="comments" stroke="#a855f7" strokeWidth={1.5} dot={false} name="Comments" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {showBatchGraph && batchGraphData.length === 0 && (
+              <div className="mt-3 rounded-xl border border-dashed border-gray-700 bg-black/30 p-4 text-center">
+                <p className="text-xs text-gray-500">No run data available to build graph.</p>
+              </div>
+            )}
 
             {/* Bulk Actions */}
             {!isCancelled && (
@@ -888,7 +1031,7 @@ export function OrdersPage({
           {/* Individual Links */}
           <div className="flex-1 overflow-y-auto p-3 sm:p-5">
             <h4 className="text-xs sm:text-sm font-semibold text-gray-400 mb-3">
-              📋 Individual Links ({group.orders.length})
+              📋 Individual Links ({group.orders.length}) — Click "Runs" to see run schedule
             </h4>
             <div className="space-y-3">
               {group.orders.map((order, index) => (
@@ -903,11 +1046,28 @@ export function OrdersPage({
 
   function SingleOrderPopup({ order }: { order: CreatedOrder }) {
     const [showRuns, setShowRuns] = useState(false);
+    const [showGraph, setShowGraph] = useState(false);
     const status = getRealStatus(order);
     const progress = getProgress(order);
     const isControlling = controllingOrderId === order.id;
     const isCancelled = status === "cancelled" || status === "failed";
     const hasBackendRuns = order.backendRuns && order.backendRuns.length > 0;
+
+    // Build graph data from order runs
+    const graphData = useMemo(() => {
+      const runs = order.runs || [];
+      return runs.map((run) => ({
+        time: (run.at instanceof Date ? run.at : new Date(run.at)).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        views: run.cumulativeViews || run.views || 0,
+        likes: (run.cumulativeLikes || run.likes || 0) * 10,
+        shares: (run.cumulativeShares || run.shares || 0) * 10,
+        saves: (run.cumulativeSaves || run.saves || 0) * 10,
+        comments: (run.cumulativeComments || run.comments || 0) * 10,
+      }));
+    }, [order]);
 
     return (
       <div
@@ -978,6 +1138,57 @@ export function OrdersPage({
               <ProgressBar percent={progress.percent} />
             </div>
 
+            {/* Delivered So Far */}
+            {(() => {
+              const delivered = getDeliveredStats(order);
+              const hasDelivered =
+                delivered.views > 0 ||
+                delivered.likes > 0 ||
+                delivered.shares > 0 ||
+                delivered.saves > 0 ||
+                delivered.comments > 0;
+              if (!hasDelivered) return null;
+              const totalViews = (order.runs || []).reduce((s, r) => s + (r.views || 0), 0);
+              const viewsPercent = totalViews > 0 ? Math.round((delivered.views / totalViews) * 100) : 0;
+              return (
+                <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                  <h4 className="text-xs font-semibold text-emerald-400 mb-2">✅ Delivered So Far</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {delivered.views > 0 && (
+                      <div className="rounded-lg bg-black/50 px-2 py-1.5 text-center">
+                        <p className="text-xs font-bold text-emerald-400">{delivered.views.toLocaleString()}</p>
+                        <p className="text-[9px] text-gray-500">👁️ Views ({viewsPercent}%)</p>
+                      </div>
+                    )}
+                    {delivered.likes > 0 && (
+                      <div className="rounded-lg bg-black/50 px-2 py-1.5 text-center">
+                        <p className="text-xs font-bold text-emerald-400">{delivered.likes.toLocaleString()}</p>
+                        <p className="text-[9px] text-gray-500">❤️ Likes</p>
+                      </div>
+                    )}
+                    {delivered.shares > 0 && (
+                      <div className="rounded-lg bg-black/50 px-2 py-1.5 text-center">
+                        <p className="text-xs font-bold text-emerald-400">{delivered.shares.toLocaleString()}</p>
+                        <p className="text-[9px] text-gray-500">🔄 Shares</p>
+                      </div>
+                    )}
+                    {delivered.saves > 0 && (
+                      <div className="rounded-lg bg-black/50 px-2 py-1.5 text-center">
+                        <p className="text-xs font-bold text-emerald-400">{delivered.saves.toLocaleString()}</p>
+                        <p className="text-[9px] text-gray-500">💾 Saves</p>
+                      </div>
+                    )}
+                    {delivered.comments > 0 && (
+                      <div className="rounded-lg bg-black/50 px-2 py-1.5 text-center">
+                        <p className="text-xs font-bold text-emerald-400">{delivered.comments.toLocaleString()}</p>
+                        <p className="text-[9px] text-gray-500">💬 Comments</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Controls */}
             <div className="mt-3 flex flex-wrap gap-2">
               {!isCancelled && status === "running" && (
@@ -1000,7 +1211,9 @@ export function OrdersPage({
               )}
               {!isCancelled && status !== "completed" && (
                 <button
-                  onClick={() => { if (window.confirm("Cancel this mission?")) onControlOrder(order, "cancel"); }}
+                  onClick={() => {
+                    if (window.confirm("Cancel this mission?")) onControlOrder(order, "cancel");
+                  }}
                   disabled={isControlling}
                   className="flex items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500/20 transition disabled:opacity-50"
                 >
@@ -1021,6 +1234,18 @@ export function OrdersPage({
               >
                 🔗 Open
               </a>
+              {graphData.length > 0 && (
+                <button
+                  onClick={() => setShowGraph(!showGraph)}
+                  className={`flex items-center gap-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition ${
+                    showGraph
+                      ? "border-yellow-500/50 bg-yellow-500/20 text-yellow-300"
+                      : "border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
+                  }`}
+                >
+                  📈 {showGraph ? "Hide Graph" : "View Graph"}
+                </button>
+              )}
               <button
                 onClick={() => setShowRuns(!showRuns)}
                 className={`flex items-center gap-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition ml-auto ${
@@ -1029,13 +1254,65 @@ export function OrdersPage({
                     : "border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
                 }`}
               >
-                {showRuns ? "🔼 Hide" : "📋 Runs"}
+                {showRuns ? "🔼 Hide Runs" : "📋 Runs"}
               </button>
             </div>
           </div>
 
-          {/* Run Table */}
-          <div className="flex-1 overflow-y-auto p-3 sm:p-5">
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-4">
+
+            {/* Graph */}
+            <AnimatePresence>
+              {showGraph && graphData.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="rounded-xl border border-yellow-500/20 bg-black/50 p-3">
+                    <p className="text-[10px] text-gray-500 mb-2">📈 Delivery schedule graph</p>
+                    <div className="h-48">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart
+                          data={graphData}
+                          margin={{ top: 8, right: 16, left: 0, bottom: 4 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="#111" opacity={0.3} />
+                          <XAxis
+                            dataKey="time"
+                            stroke="#666"
+                            tick={{ fill: "#9ca3af", fontSize: 10 }}
+                          />
+                          <YAxis
+                            stroke="#666"
+                            tick={{ fill: "#9ca3af", fontSize: 10 }}
+                            width={40}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              background: "#000",
+                              border: "1px solid #eab308",
+                              borderRadius: "0.5rem",
+                              color: "#d1d5db",
+                              fontSize: "11px",
+                            }}
+                          />
+                          <Line type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} dot={false} name="Views" />
+                          <Line type="monotone" dataKey="likes" stroke="#ec4899" strokeWidth={1.5} dot={false} name="Likes" />
+                          <Line type="monotone" dataKey="shares" stroke="#22c55e" strokeWidth={1.5} dot={false} name="Shares" />
+                          <Line type="monotone" dataKey="saves" stroke="#eab308" strokeWidth={1.5} dot={false} name="Saves" />
+                          <Line type="monotone" dataKey="comments" stroke="#a855f7" strokeWidth={1.5} dot={false} name="Comments" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Run Table */}
             <AnimatePresence>
               {showRuns && (
                 <motion.div
@@ -1086,10 +1363,15 @@ export function OrdersPage({
                                   <td className="py-1.5 pr-3 text-blue-400">{run.shares || 0}</td>
                                   <td className="py-1.5 pr-3 text-purple-400">{run.saves || 0}</td>
                                   <td className="py-1.5">
-                                    {runStatus === "completed" ? <span className="text-emerald-400">✅</span>
-                                      : runStatus === "cancelled" ? <span className="text-red-400">🚫</span>
-                                      : isPast ? <span className="text-yellow-400">⚡</span>
-                                      : <span className="text-gray-500">🕐</span>}
+                                    {runStatus === "completed" ? (
+                                      <span className="text-emerald-400">✅</span>
+                                    ) : runStatus === "cancelled" ? (
+                                      <span className="text-red-400">🚫</span>
+                                    ) : isPast ? (
+                                      <span className="text-yellow-400">⚡</span>
+                                    ) : (
+                                      <span className="text-gray-500">🕐</span>
+                                    )}
                                   </td>
                                 </tr>
                               );
@@ -1108,7 +1390,7 @@ export function OrdersPage({
             </AnimatePresence>
 
             {/* Metadata */}
-            <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-gray-500">
+            <div className="grid grid-cols-2 gap-3 text-xs text-gray-500">
               <div><span className="text-gray-600">API: </span><span>{order.selectedAPI}</span></div>
               <div><span className="text-gray-600">Bundle: </span><span>{order.selectedBundle}</span></div>
               <div><span className="text-gray-600">Pattern: </span><span>{order.patternName}</span></div>
@@ -1125,19 +1407,14 @@ export function OrdersPage({
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 px-3 py-4 sm:px-6 sm:py-8">
-
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2 sm:gap-3">
             <span className="text-xl sm:text-2xl">📦</span>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-yellow-400">
-              Mission Control
-            </h2>
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-yellow-400">Mission Control</h2>
           </div>
-          <p className="mt-1 text-xs sm:text-sm text-gray-600">
-            Track and manage all your operations
-          </p>
+          <p className="mt-1 text-xs sm:text-sm text-gray-600">Track and manage all your operations</p>
         </div>
         <div className="flex items-center gap-2 text-xs text-gray-600">
           <span className="inline-flex h-2 w-2 rounded-full bg-yellow-400 animate-pulse" />
@@ -1168,9 +1445,8 @@ export function OrdersPage({
       {/* Tabs & Controls */}
       <div className="rounded-xl border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black p-3 sm:p-4">
         <div className="flex flex-col gap-3">
-
-          {/* Tabs - scrollable on mobile */}
-          <div className="flex gap-1 overflow-x-auto no-scrollbar pb-1">
+          {/* Tabs */}
+          <div className="flex gap-1 overflow-x-auto pb-1">
             {TABS.map((tab) => {
               const count = categorizedGroups[tab.key].length;
               const isActive = activeTab === tab.key;
@@ -1222,7 +1498,6 @@ export function OrdersPage({
                 </button>
               )}
             </div>
-
             <div className="inline-flex rounded-lg border border-yellow-500/30 bg-black p-1 flex-shrink-0">
               <button
                 type="button"
