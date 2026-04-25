@@ -71,24 +71,40 @@ function hydrateOrderDates(orders: CreatedOrder[]): CreatedOrder[] {
       ? order.runs.map((run, index) => ({
           run: Number.isFinite(run?.run) ? run.run : index + 1,
           at: run?.at ? new Date(run.at) : new Date(),
-          minutesFromStart: Number.isFinite(run?.minutesFromStart) ? run.minutesFromStart : 0,
+          minutesFromStart: Number.isFinite(run?.minutesFromStart)
+            ? run.minutesFromStart
+            : 0,
           views: Number.isFinite(run?.views) ? run.views : 0,
           likes: Number.isFinite(run?.likes) ? run.likes : 0,
           shares: Number.isFinite(run?.shares) ? run.shares : 0,
           saves: Number.isFinite(run?.saves) ? run.saves : 0,
           comments: Number.isFinite(run?.comments) ? run.comments : 0,
-          cumulativeViews: Number.isFinite(run?.cumulativeViews) ? run.cumulativeViews : 0,
-          cumulativeLikes: Number.isFinite(run?.cumulativeLikes) ? run.cumulativeLikes : 0,
-          cumulativeShares: Number.isFinite(run?.cumulativeShares) ? run.cumulativeShares : 0,
-          cumulativeSaves: Number.isFinite(run?.cumulativeSaves) ? run.cumulativeSaves : 0,
-          cumulativeComments: Number.isFinite(run?.cumulativeComments) ? run.cumulativeComments : 0,
+          cumulativeViews: Number.isFinite(run?.cumulativeViews)
+            ? run.cumulativeViews
+            : 0,
+          cumulativeLikes: Number.isFinite(run?.cumulativeLikes)
+            ? run.cumulativeLikes
+            : 0,
+          cumulativeShares: Number.isFinite(run?.cumulativeShares)
+            ? run.cumulativeShares
+            : 0,
+          cumulativeSaves: Number.isFinite(run?.cumulativeSaves)
+            ? run.cumulativeSaves
+            : 0,
+          cumulativeComments: Number.isFinite(run?.cumulativeComments)
+            ? run.cumulativeComments
+            : 0,
         }))
       : [];
 
     const safeRunStatuses: RunStatus[] = Array.isArray(order?.runStatuses)
       ? safeRuns.map((_, index) => {
           const next = order.runStatuses[index];
-          return next === "completed" || next === "cancelled" || next === "retrying" ? next : "pending";
+          return next === "completed" ||
+            next === "cancelled" ||
+            next === "retrying"
+            ? next
+            : "pending";
         })
       : safeRuns.map(() => "pending");
 
@@ -107,17 +123,25 @@ function hydrateOrderDates(orders: CreatedOrder[]): CreatedOrder[] {
         order?.status === "cancelled" ||
         order?.status === "completed" ||
         order?.status === "running" ||
-        order?.status === "processing"
+        order?.status === "processing" ||
+        order?.status === "pending"
           ? order.status
           : "running",
-      completedRuns: Number.isFinite(order?.completedRuns) ? order.completedRuns : 0,
+      completedRuns: Number.isFinite(order?.completedRuns)
+        ? order.completedRuns
+        : 0,
       runStatuses: safeRunStatuses,
       runErrors: safeRunErrors,
       runRetries: order?.runRetries || [],
       runOriginalTimes: order?.runOriginalTimes || [],
       runCurrentTimes: order?.runCurrentTimes || [],
       runReasons: order?.runReasons || [],
-      lastUpdatedAt: order?.lastUpdatedAt ?? order?.createdAt ?? new Date().toISOString(),
+      // 🔥 FIXED: Hydrate runActualExecutedTimes
+      runActualExecutedTimes: Array.isArray(order?.runActualExecutedTimes)
+        ? order.runActualExecutedTimes
+        : safeRuns.map(() => null),
+      lastUpdatedAt:
+        order?.lastUpdatedAt ?? order?.createdAt ?? new Date().toISOString(),
       runs: safeRuns,
     };
   });
@@ -154,9 +178,7 @@ export default function App() {
     return "new-order";
   });
 
-  // 🔥 Mobile nav state
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-
   const [ordersNotice, setOrdersNotice] = useState("");
   const [orders, setOrders] = useState<CreatedOrder[]>(() =>
     hydrateOrderDates(readStorage<CreatedOrder[]>("dev-smm-orders", []))
@@ -167,10 +189,13 @@ export default function App() {
   const [bundles, setBundles] = useState<Bundle[]>(() =>
     hydrateBundles(readStorage<Bundle[]>("dev-smm-bundles", []))
   );
-  const [cloneSourceOrder, setCloneSourceOrder] = useState<CreatedOrder | null>(null);
+  const [cloneSourceOrder, setCloneSourceOrder] = useState<CreatedOrder | null>(
+    null
+  );
   const [fetchingApiId, setFetchingApiId] = useState<string | null>(null);
-  const [controllingOrderId, setControllingOrderId] = useState<string | null>(null);
-
+  const [controllingOrderId, setControllingOrderId] = useState<string | null>(
+    null
+  );
   const [batmanQuote] = useState(() => getRandomQuote());
 
   const isSyncingRef = useRef(false);
@@ -214,7 +239,6 @@ export default function App() {
 
       const now = Date.now();
       const timeSinceLastSync = now - lastSyncTimeRef.current;
-
       if (!force && timeSinceLastSync < 10000) return;
 
       isSyncingRef.current = true;
@@ -234,7 +258,10 @@ export default function App() {
 
         if (activeOrders.length === 0) return;
 
-        const updates: Array<{ orderId: string; data: Partial<CreatedOrder> }> = [];
+        const updates: Array<{
+          orderId: string;
+          data: Partial<CreatedOrder>;
+        }> = [];
 
         for (const order of activeOrders) {
           try {
@@ -242,26 +269,47 @@ export default function App() {
 
             const runStatuses: RunStatus[] = result.runs.map((backendRun) => {
               switch (backendRun.status) {
-                case "completed": return "completed";
-                case "cancelled": return "cancelled";
-                case "failed": return "cancelled";
-                default: return "pending";
+                case "completed":
+                  return "completed";
+                case "cancelled":
+                  return "cancelled";
+                case "failed":
+                  return "cancelled";
+                default:
+                  return "pending";
               }
             });
 
-            const runErrors: string[] = result.runs.map((backendRun) => backendRun.error || "");
-            const completedRuns = runStatuses.filter((s) => s === "completed").length;
+            const runErrors: string[] = result.runs.map(
+              (backendRun) => backendRun.error || ""
+            );
+            const completedRuns = runStatuses.filter(
+              (s) => s === "completed"
+            ).length;
 
             let frontendStatus: CreatedOrder["status"] = order.status;
             switch (result.status) {
-              case "completed": frontendStatus = "completed"; break;
-              case "cancelled": frontendStatus = "cancelled"; break;
-              case "failed": frontendStatus = "failed"; break;
-              case "paused": frontendStatus = "paused"; break;
+              case "completed":
+                frontendStatus = "completed";
+                break;
+              case "cancelled":
+                frontendStatus = "cancelled";
+                break;
+              case "failed":
+                frontendStatus = "failed";
+                break;
+              case "paused":
+                frontendStatus = "paused";
+                break;
               case "running":
-              case "processing": frontendStatus = "running"; break;
-              case "pending": frontendStatus = "running"; break;
-              default: frontendStatus = order.status;
+              case "processing":
+                frontendStatus = "running";
+                break;
+              case "pending":
+                frontendStatus = "running";
+                break;
+              default:
+                frontendStatus = order.status;
             }
 
             updates.push({
@@ -276,7 +324,10 @@ export default function App() {
               },
             });
           } catch (error) {
-            console.error(`[Sync] Failed to sync order ${order.id}:`, error);
+            console.error(
+              `[Sync] Failed to sync order ${order.id}:`,
+              error
+            );
           }
         }
 
@@ -300,8 +351,13 @@ export default function App() {
   useEffect(() => {
     if (activePage !== "orders" && activePage !== "dashboard") return;
 
-    const initialSync = setTimeout(() => { syncOrdersWithBackend(); }, 5000);
-    const interval = setInterval(() => { syncOrdersWithBackend(); }, 300000);
+    const initialSync = setTimeout(() => {
+      syncOrdersWithBackend();
+    }, 5000);
+
+    const interval = setInterval(() => {
+      syncOrdersWithBackend();
+    }, 300000);
 
     return () => {
       clearTimeout(initialSync);
@@ -317,7 +373,9 @@ export default function App() {
           bundles={bundles}
           orders={orders}
           prefillOrder={cloneSourceOrder}
-          onCreateOrder={(order) => persistOrders((prev) => [order, ...prev])}
+          onCreateOrder={(order) =>
+            persistOrders((prev) => [order, ...prev])
+          }
           onNavigateToOrders={(notice) => {
             if (notice) setOrdersNotice(notice);
             navigateToPage("orders");
@@ -325,32 +383,53 @@ export default function App() {
         />
       );
     }
+
     if (activePage === "dashboard") {
       return <DashboardPage orders={orders} />;
     }
+
     if (activePage === "orders") {
       return (
         <OrdersPage
           orders={orders}
           notice={ordersNotice}
           controllingOrderId={controllingOrderId}
+          // 🔥 FIXED: Now passing apis and bundles to OrdersPage
+          apis={apis}
+          bundles={bundles}
           onCloneOrder={(order) => {
             setCloneSourceOrder(order);
             navigateToPage("new-order");
           }}
           onControlOrder={async (order, action) => {
-            const applyLocalUpdate = (nextStatus: CreatedOrder["status"]) => {
+            const applyLocalUpdate = (
+              nextStatus: CreatedOrder["status"]
+            ) => {
               persistOrders((prev) =>
                 prev.map((item) => {
                   if (item.id !== order.id) return item;
                   if (nextStatus === "cancelled") {
-                    const nextRunStatuses = item.runStatuses.map(
-                      (status) => status === "pending" || status === "retrying" ? "cancelled" : status
+                    const nextRunStatuses = item.runStatuses.map((status) =>
+                      status === "pending" || status === "retrying"
+                        ? "cancelled"
+                        : status
                     );
-                    const completedRuns = nextRunStatuses.filter((status) => status === "completed").length;
-                    return { ...item, status: nextStatus, runStatuses: nextRunStatuses, completedRuns, lastUpdatedAt: new Date().toISOString() };
+                    const completedRuns = nextRunStatuses.filter(
+                      (status) => status === "completed"
+                    ).length;
+                    return {
+                      ...item,
+                      status: nextStatus,
+                      runStatuses: nextRunStatuses,
+                      completedRuns,
+                      lastUpdatedAt: new Date().toISOString(),
+                    };
                   }
-                  return { ...item, status: nextStatus, lastUpdatedAt: new Date().toISOString() };
+                  return {
+                    ...item,
+                    status: nextStatus,
+                    lastUpdatedAt: new Date().toISOString(),
+                  };
                 })
               );
             };
@@ -358,26 +437,51 @@ export default function App() {
             setControllingOrderId(order.id);
             try {
               if (order.schedulerOrderId) {
-                const result = await updateOrderControl({ schedulerOrderId: order.schedulerOrderId, action });
-                const nextStatus = result.status || (action === "pause" ? "paused" : action === "resume" ? "running" : "cancelled");
+                const result = await updateOrderControl({
+                  schedulerOrderId: order.schedulerOrderId,
+                  action,
+                });
+                const nextStatus =
+                  result.status ||
+                  (action === "pause"
+                    ? "paused"
+                    : action === "resume"
+                    ? "running"
+                    : "cancelled");
                 persistOrders((prev) =>
                   prev.map((item) => {
                     if (item.id !== order.id) return item;
                     return {
                       ...item,
                       status: nextStatus,
-                      completedRuns: typeof result.completedRuns === "number" ? result.completedRuns : item.completedRuns,
-                      runStatuses: result.runStatuses ?? item.runStatuses,
+                      completedRuns:
+                        typeof result.completedRuns === "number"
+                          ? result.completedRuns
+                          : item.completedRuns,
+                      runStatuses:
+                        result.runStatuses ?? item.runStatuses,
                       lastUpdatedAt: new Date().toISOString(),
                     };
                   })
                 );
                 setTimeout(() => syncOrdersWithBackend(true), 2000);
               } else {
-                applyLocalUpdate(action === "pause" ? "paused" : action === "resume" ? "running" : "cancelled");
+                applyLocalUpdate(
+                  action === "pause"
+                    ? "paused"
+                    : action === "resume"
+                    ? "running"
+                    : "cancelled"
+                );
               }
             } catch {
-              applyLocalUpdate(action === "pause" ? "paused" : action === "resume" ? "running" : "cancelled");
+              applyLocalUpdate(
+                action === "pause"
+                  ? "paused"
+                  : action === "resume"
+                  ? "running"
+                  : "cancelled"
+              );
             } finally {
               setControllingOrderId(null);
             }
@@ -386,21 +490,46 @@ export default function App() {
         />
       );
     }
+
     if (activePage === "apis") {
       return (
         <APIsPage
           apis={apis}
           onAddApi={(api) => {
-            const next: ApiPanel[] = [...apis, { id: `api-${Date.now()}`, name: api.name, url: api.url, key: api.key, status: "Active", services: [] }];
+            const next: ApiPanel[] = [
+              ...apis,
+              {
+                id: `api-${Date.now()}`,
+                name: api.name,
+                url: api.url,
+                key: api.key,
+                status: "Active",
+                services: [],
+              },
+            ];
             persistApis(next);
           }}
           onEditApi={(id, api) => {
-            const next: ApiPanel[] = apis.map((item) => item.id === id ? { ...item, name: api.name, url: api.url, key: api.key } : item);
+            const next: ApiPanel[] = apis.map((item) =>
+              item.id === id
+                ? { ...item, name: api.name, url: api.url, key: api.key }
+                : item
+            );
             persistApis(next);
           }}
-          onDeleteApi={(id) => { persistApis(apis.filter((api) => api.id !== id)); }}
+          onDeleteApi={(id) => {
+            persistApis(apis.filter((api) => api.id !== id));
+          }}
           onToggleStatus={(id) => {
-            const next: ApiPanel[] = apis.map((api) => api.id === id ? { ...api, status: api.status === "Active" ? "Inactive" : "Active" } : api);
+            const next: ApiPanel[] = apis.map((api) =>
+              api.id === id
+                ? {
+                    ...api,
+                    status:
+                      api.status === "Active" ? "Inactive" : "Active",
+                  }
+                : api
+            );
             persistApis(next);
           }}
           onFetchServices={async (id) => {
@@ -408,12 +537,29 @@ export default function App() {
             if (!targetApi) return;
             setFetchingApiId(id);
             try {
-              const services = await fetchServices(targetApi.url, targetApi.key);
-              const next = apis.map((api) => api.id === id ? { ...api, services, lastFetchAt: new Date().toISOString(), lastFetchError: undefined } : api);
+              const services = await fetchServices(
+                targetApi.url,
+                targetApi.key
+              );
+              const next = apis.map((api) =>
+                api.id === id
+                  ? {
+                      ...api,
+                      services,
+                      lastFetchAt: new Date().toISOString(),
+                      lastFetchError: undefined,
+                    }
+                  : api
+              );
               persistApis(next);
             } catch (error) {
-              const message = error instanceof Error ? error.message : "Failed to fetch services";
-              const next = apis.map((api) => api.id === id ? { ...api, lastFetchError: message } : api);
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : "Failed to fetch services";
+              const next = apis.map((api) =>
+                api.id === id ? { ...api, lastFetchError: message } : api
+              );
               persistApis(next);
             } finally {
               setFetchingApiId(null);
@@ -423,22 +569,68 @@ export default function App() {
         />
       );
     }
+
     return (
       <BundlesPage
         apis={apis}
         bundles={bundles}
         onAddBundle={(bundle) => {
-          const next: Bundle[] = [...bundles, { id: `bundle-${Date.now()}`, apiId: bundle.apiId, name: bundle.name, serviceIds: { views: bundle.views, likes: bundle.likes, shares: bundle.shares, saves: bundle.saves, comments: bundle.comments } }];
+          const next: Bundle[] = [
+            ...bundles,
+            {
+              id: `bundle-${Date.now()}`,
+              apiId: bundle.apiId,
+              name: bundle.name,
+              serviceIds: {
+                views: bundle.views,
+                likes: bundle.likes,
+                shares: bundle.shares,
+                saves: bundle.saves,
+                comments: bundle.comments,
+              },
+            },
+          ];
           persistBundles(next);
         }}
         onUpdateBundle={(id, bundle) => {
-          const next: Bundle[] = bundles.map((item) => item.id === id ? { ...item, apiId: bundle.apiId, name: bundle.name, serviceIds: { views: bundle.views, likes: bundle.likes, shares: bundle.shares, saves: bundle.saves, comments: bundle.comments } } : item);
+          const next: Bundle[] = bundles.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  apiId: bundle.apiId,
+                  name: bundle.name,
+                  serviceIds: {
+                    views: bundle.views,
+                    likes: bundle.likes,
+                    shares: bundle.shares,
+                    saves: bundle.saves,
+                    comments: bundle.comments,
+                  },
+                }
+              : item
+          );
           persistBundles(next);
         }}
-        onDeleteBundle={(id) => { persistBundles(bundles.filter((bundle) => bundle.id !== id)); }}
+        onDeleteBundle={(id) => {
+          persistBundles(bundles.filter((bundle) => bundle.id !== id));
+        }}
       />
     );
-  }, [activePage, apis, bundles, orders, fetchingApiId, controllingOrderId, ordersNotice, cloneSourceOrder, navigateToPage, persistOrders, persistApis, persistBundles, syncOrdersWithBackend]);
+  }, [
+    activePage,
+    apis,
+    bundles,
+    orders,
+    fetchingApiId,
+    controllingOrderId,
+    ordersNotice,
+    cloneSourceOrder,
+    navigateToPage,
+    persistOrders,
+    persistApis,
+    persistBundles,
+    syncOrdersWithBackend,
+  ]);
 
   return (
     <div className="min-h-screen bg-black text-gray-100">
@@ -449,11 +641,16 @@ export default function App() {
           <div className="mb-8 space-y-1">
             <div className="flex items-center gap-3">
               <div className="relative">
-                <div className="absolute inset-0 animate-ping rounded-full bg-yellow-500/20" style={{ animationDuration: "3s" }} />
+                <div
+                  className="absolute inset-0 animate-ping rounded-full bg-yellow-500/20"
+                  style={{ animationDuration: "3s" }}
+                />
                 <span className="relative text-3xl">🦇</span>
               </div>
               <div>
-                <h1 className="text-xl font-bold tracking-tight text-yellow-400">GOTHAM</h1>
+                <h1 className="text-xl font-bold tracking-tight text-yellow-400">
+                  GOTHAM
+                </h1>
                 <p className="text-xs text-yellow-600">SMM Command Center</p>
               </div>
             </div>
@@ -481,7 +678,11 @@ export default function App() {
                     <motion.span
                       layoutId="active-nav"
                       className="absolute inset-0 rounded-xl border border-yellow-500/50"
-                      transition={{ type: "spring", stiffness: 280, damping: 28 }}
+                      transition={{
+                        type: "spring",
+                        stiffness: 280,
+                        damping: 28,
+                      }}
                     />
                   )}
                   <span className="relative text-lg">{item.icon}</span>
@@ -499,14 +700,22 @@ export default function App() {
           >
             <div className="mb-2 flex items-center gap-2">
               <span className="text-yellow-400">🦇</span>
-              <span className="text-[10px] font-medium uppercase tracking-wider text-yellow-600">Quote of the Visit</span>
+              <span className="text-[10px] font-medium uppercase tracking-wider text-yellow-600">
+                Quote of the Visit
+              </span>
             </div>
-            <p className="text-xs italic leading-relaxed text-yellow-500/70">"{batmanQuote}"</p>
-            <p className="mt-2 text-right text-[10px] font-medium text-yellow-600">— Batman</p>
+            <p className="text-xs italic leading-relaxed text-yellow-500/70">
+              "{batmanQuote}"
+            </p>
+            <p className="mt-2 text-right text-[10px] font-medium text-yellow-600">
+              — Batman
+            </p>
           </motion.div>
 
           <div className="mt-4 rounded-lg border border-gray-800 bg-black/50 px-3 py-2 text-center">
-            <p className="text-[10px] text-gray-600">Auto-syncs every 5 min ⚡</p>
+            <p className="text-[10px] text-gray-600">
+              Auto-syncs every 5 min ⚡
+            </p>
           </div>
         </aside>
 
@@ -515,7 +724,9 @@ export default function App() {
           <div className="flex items-center gap-2">
             <span className="text-2xl">🦇</span>
             <div>
-              <h1 className="text-base font-bold tracking-tight text-yellow-400">GOTHAM</h1>
+              <h1 className="text-base font-bold tracking-tight text-yellow-400">
+                GOTHAM
+              </h1>
               <p className="text-[10px] text-yellow-600">SMM Command Center</p>
             </div>
           </div>
@@ -524,9 +735,24 @@ export default function App() {
             onClick={() => setMobileNavOpen((prev) => !prev)}
             className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-2.5"
           >
-            <span className={cn("block h-0.5 w-5 bg-yellow-400 transition-all", mobileNavOpen && "translate-y-2 rotate-45")} />
-            <span className={cn("block h-0.5 w-5 bg-yellow-400 transition-all", mobileNavOpen && "opacity-0")} />
-            <span className={cn("block h-0.5 w-5 bg-yellow-400 transition-all", mobileNavOpen && "-translate-y-2 -rotate-45")} />
+            <span
+              className={cn(
+                "block h-0.5 w-5 bg-yellow-400 transition-all",
+                mobileNavOpen && "translate-y-2 rotate-45"
+              )}
+            />
+            <span
+              className={cn(
+                "block h-0.5 w-5 bg-yellow-400 transition-all",
+                mobileNavOpen && "opacity-0"
+              )}
+            />
+            <span
+              className={cn(
+                "block h-0.5 w-5 bg-yellow-400 transition-all",
+                mobileNavOpen && "-translate-y-2 -rotate-45"
+              )}
+            />
           </button>
         </div>
 
@@ -534,7 +760,6 @@ export default function App() {
         <AnimatePresence>
           {mobileNavOpen && (
             <>
-              {/* Backdrop */}
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -542,7 +767,6 @@ export default function App() {
                 className="fixed inset-0 z-40 bg-black/70 lg:hidden"
                 onClick={() => setMobileNavOpen(false)}
               />
-              {/* Drawer */}
               <motion.div
                 initial={{ x: "-100%" }}
                 animate={{ x: 0 }}
@@ -553,8 +777,12 @@ export default function App() {
                 <div className="mb-8 flex items-center gap-3">
                   <span className="text-3xl">🦇</span>
                   <div>
-                    <h1 className="text-xl font-bold tracking-tight text-yellow-400">GOTHAM</h1>
-                    <p className="text-xs text-yellow-600">SMM Command Center</p>
+                    <h1 className="text-xl font-bold tracking-tight text-yellow-400">
+                      GOTHAM
+                    </h1>
+                    <p className="text-xs text-yellow-600">
+                      SMM Command Center
+                    </p>
                   </div>
                 </div>
 
@@ -566,7 +794,8 @@ export default function App() {
                         key={item.key}
                         type="button"
                         onClick={() => {
-                          if (item.key === "new-order") setCloneSourceOrder(null);
+                          if (item.key === "new-order")
+                            setCloneSourceOrder(null);
                           navigateToPage(item.key);
                         }}
                         className={cn(
@@ -586,14 +815,22 @@ export default function App() {
                 <div className="mt-8 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4">
                   <div className="mb-2 flex items-center gap-2">
                     <span className="text-yellow-400">🦇</span>
-                    <span className="text-[10px] font-medium uppercase tracking-wider text-yellow-600">Quote of the Visit</span>
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-yellow-600">
+                      Quote of the Visit
+                    </span>
                   </div>
-                  <p className="text-xs italic leading-relaxed text-yellow-500/70">"{batmanQuote}"</p>
-                  <p className="mt-2 text-right text-[10px] font-medium text-yellow-600">— Batman</p>
+                  <p className="text-xs italic leading-relaxed text-yellow-500/70">
+                    "{batmanQuote}"
+                  </p>
+                  <p className="mt-2 text-right text-[10px] font-medium text-yellow-600">
+                    — Batman
+                  </p>
                 </div>
 
                 <div className="mt-4 rounded-lg border border-gray-800 bg-black/50 px-3 py-2 text-center">
-                  <p className="text-[10px] text-gray-600">Auto-syncs every 5 min ⚡</p>
+                  <p className="text-[10px] text-gray-600">
+                    Auto-syncs every 5 min ⚡
+                  </p>
                 </div>
               </motion.div>
             </>
@@ -613,13 +850,15 @@ export default function App() {
                   navigateToPage(item.key);
                 }}
                 className={cn(
-                  "flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-all",
+                  "relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-all",
                   isActive ? "text-yellow-400" : "text-gray-600"
                 )}
               >
                 <span className="text-lg">{item.icon}</span>
                 <span>{item.label}</span>
-                {isActive && <span className="absolute bottom-0 h-0.5 w-8 rounded-full bg-yellow-400" />}
+                {isActive && (
+                  <span className="absolute bottom-0 h-0.5 w-8 rounded-full bg-yellow-400" />
+                )}
               </button>
             );
           })}
