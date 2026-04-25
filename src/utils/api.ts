@@ -437,3 +437,38 @@ export async function cancelMultipleOrders(schedulerOrderIds: string[]): Promise
     results,
   };
 }
+
+export interface ProviderRunStatus {
+  label: string;
+  smmOrderId: string;
+  providerStatus: string;
+  remains?: number;
+  charge?: string;
+  currency?: string;
+  error?: string;
+}
+
+export async function checkProviderOrderStatus(schedulerOrderId: string): Promise<{
+  results: ProviderRunStatus[];
+}> {
+  const endpoint = `${BACKEND_BASE_URL.replace(/\/$/, "")}/api/order/provider-status/${schedulerOrderId}`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to check provider status (HTTP ${response.status})`);
+    }
+
+    const data = await response.json();
+    return {
+      results: Array.isArray(data.results) ? data.results : [],
+    };
+  } catch (error) {
+    console.error(`[Check Provider Status] Error for ${schedulerOrderId}:`, error);
+    throw error;
+  }
+}
